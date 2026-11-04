@@ -57,6 +57,33 @@ describe('planCharging', () => {
     expect(result.plan.map((s) => s.kwh)).toEqual([0, 2, 2])
   })
 
+  it('adds energy used during blocks before the deadline', () => {
+    const slots = slotsFrom('00:00', [1, 2, 3, 4])
+    const result = planCharging({
+      slots, now: t('00:00'), deadline: t('02:00'), energyKwh: 1, powerKw: 4,
+      blocks: [
+        { type: 'once', start: t('01:00'), end: t('01:30'), kwh: 1.5 },
+        // starts after the deadline, so it doesn't count
+        { type: 'once', start: t('03:00'), end: t('04:00'), kwh: 10 },
+      ],
+    })
+    expect(result.blockKwh).toBe(1.5)
+    expect(result.blockCount).toBe(1)
+    expect(result.totalKwh).toBe(2.5)
+    expect(result.plan.map((s) => s.kwh)).toEqual([2, 0.5, 0, 0])
+  })
+
+  it('counts every occurrence of a weekly block', () => {
+    const slots = slotsFrom('00:00', [1])
+    const result = planCharging({
+      slots, now: t('00:00', 2), deadline: t('00:00', 5), energyKwh: 0, powerKw: 4,
+      blocks: [{ type: 'daily', from: '08:00', to: '09:00', kwh: 3 }],
+    })
+    // 2, 3 and 4 Nov
+    expect(result.blockCount).toBe(3)
+    expect(result.blockKwh).toBe(9)
+  })
+
   it('merges adjacent slots into windows', () => {
     const slots = slotsFrom('00:00', [1, 1, 9, 1])
     const result = planCharging({

@@ -9,13 +9,6 @@ import { loadSettings, saveSettings } from './lib/storage.js'
 
 const REFRESH_MS = 5 * 60 * 1000
 
-function defaultDeadline() {
-  const d = new Date()
-  d.setDate(d.getDate() + 1)
-  d.setHours(7, 0, 0, 0)
-  return toLocalInput(d)
-}
-
 function toLocalInput(d) {
   const pad = (n) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
@@ -24,13 +17,14 @@ function toLocalInput(d) {
 const settings = reactive({
   energyKwh: 20,
   powerKw: 7,
-  deadline: defaultDeadline(),
+  // Empty means "end of the forecast".
+  deadline: '',
   extraCents: 0,
   blocks: [],
   ...loadSettings(),
 })
-// A saved deadline that has passed is no use; roll it forward.
-if (new Date(settings.deadline) <= new Date()) settings.deadline = defaultDeadline()
+// A saved deadline that has passed is no use; fall back to the default.
+if (settings.deadline && new Date(settings.deadline) <= new Date()) settings.deadline = ''
 watch(settings, () => saveSettings(settings), { deep: true })
 
 const slots = ref([])
@@ -60,10 +54,11 @@ onMounted(() => {
 })
 onUnmounted(() => clearInterval(timer))
 
-const deadline = computed(() => new Date(settings.deadline))
+const forecastEnd = computed(() => slots.value.at(-1)?.end)
+const deadline = computed(() => (settings.deadline ? new Date(settings.deadline) : forecastEnd.value))
 
 const result = computed(() => {
-  if (!slots.value.length || isNaN(deadline.value)) return null
+  if (!slots.value.length || !deadline.value || isNaN(deadline.value)) return null
   return planCharging({
     slots: slots.value,
     now: now.value,
@@ -77,7 +72,6 @@ const result = computed(() => {
 const totalCost = computed(() =>
   result.value ? result.value.wholesaleCost + (settings.extraCents / 100) * result.value.scheduledKwh : 0,
 )
-const forecastEnd = computed(() => slots.value.at(-1)?.end)
 </script>
 
 <template>
@@ -96,7 +90,17 @@ const forecastEnd = computed(() => slots.value.at(-1)?.end)
           <span class="unit"><input v-model.number="settings.powerKw" type="number" min="0.1" step="0.1" /> kW</span>
         </label>
         <label>Needed by
-          <input v-model="settings.deadline" type="datetime-local" />
+          <input
+            v-model="settings.deadline"
+            type="datetime-local"
+            :max="forecastEnd && toLocalInput(forecastEnd)"
+          />
+          <span v-if="!settings.deadline" class="field-hint">
+            End of forecast<template v-if="forecastEnd"> ({{ fmtDayTime(forecastEnd) }})</template>
+          </span>
+          <button v-else type="button" class="link" @click="settings.deadline = ''">
+            Use end of forecast
+          </button>
         </label>
         <label>Network + retail extra
           <span class="unit"><input v-model.number="settings.extraCents" type="number" step="0.5" /> c/kWh</span>
@@ -119,7 +123,10 @@ const forecastEnd = computed(() => slots.value.at(-1)?.end)
         <div class="summary">
           <div>
             <strong>{{ result.scheduledKwh.toFixed(1) }} kWh</strong>
-            <span>scheduled</span>
+            <span>
+              scheduled<template v-if="result.blockKwh > 0">, incl. {{ result.blockKwh.toFixed(1) }} kWh
+                for {{ result.blockCount }} {{ result.blockCount === 1 ? 'block' : 'blocks' }}</template>
+            </span>
           </div>
           <div>
             <strong>{{ fmtCents(centsPerKwh(result.averagePrice)) }}</strong>

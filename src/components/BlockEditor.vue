@@ -4,11 +4,11 @@ const blocks = defineModel({ type: Array, required: true })
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 function addDaily() {
-  blocks.value.push({ type: 'daily', from: '08:00', to: '18:00', days: [1, 2, 3, 4, 5] })
+  blocks.value.push({ type: 'daily', from: '08:00', to: '18:00', days: [1, 2, 3, 4, 5], kwh: 0 })
 }
 
 function addOnce() {
-  blocks.value.push({ type: 'once', start: '', end: '' })
+  blocks.value.push({ type: 'once', start: '', end: '', kwh: 0 })
 }
 
 function toggleDay(block, day) {
@@ -44,6 +44,11 @@ function toggleDay(block, day) {
         <span>to</span>
         <input v-model="block.end" type="datetime-local" aria-label="To" />
       </template>
+      <label class="uses">
+        uses
+        <input v-model.number="block.kwh" type="number" min="0" step="0.5" placeholder="0" />
+        kWh
+      </label>
       <button type="button" class="remove" aria-label="Remove" @click="blocks.splice(i, 1)">✕</button>
     </div>
     <div class="actions">

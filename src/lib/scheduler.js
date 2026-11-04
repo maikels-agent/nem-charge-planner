@@ -4,16 +4,18 @@ function overlapMs(aStart, aEnd, bStart, bEnd) {
   return Math.max(0, Math.min(aEnd, bEnd) - Math.max(aStart, bStart))
 }
 
-// Expands blocked periods into concrete [start, end) ranges covering
-// the window. Daily blocks use the browser's local time and may wrap
-// past midnight (e.g. 22:00–06:00).
+// Expands blocked periods into concrete [start, end, kwh] ranges covering
+// the window, where kwh is the energy used during that occurrence (e.g. a
+// commute). Daily blocks use the browser's local time and may wrap past
+// midnight (e.g. 22:00–06:00).
 export function expandBlocks(blocks, from, to) {
   const ranges = []
   for (const b of blocks) {
+    const kwh = Number(b.kwh) || 0
     if (b.type === 'once') {
       const start = new Date(b.start)
       const end = new Date(b.end)
-      if (end > start) ranges.push([start, end])
+      if (end > start) ranges.push([start, end, kwh])
       continue
     }
     const [sh, sm] = b.from.split(':').map(Number)
@@ -29,7 +31,7 @@ export function expandBlocks(blocks, from, to) {
         const end = new Date(day)
         end.setHours(eh, em, 0, 0)
         if (end <= start) end.setDate(end.getDate() + 1)
-        ranges.push([start, end])
+        ranges.push([start, end, kwh])
       }
       day.setDate(day.getDate() + 1)
     }
@@ -60,8 +62,20 @@ export function usableMinutes(slot, now, deadline, blockRanges) {
 // Picks the cheapest usable slots until enough energy is scheduled.
 // Charging at a constant rate makes this a fractional knapsack, so
 // greedy by price is optimal.
+// Energy used during blocked periods that overlap the window from now
+// until the deadline. That energy has to be charged on top.
+export function blockEnergy(blockRanges, now, deadline) {
+  const used = blockRanges.filter(([s, e, kwh]) => kwh > 0 && e > now && s < deadline)
+  return {
+    kwh: used.reduce((sum, [, , kwh]) => sum + kwh, 0),
+    count: used.length,
+  }
+}
+
 export function planCharging({ slots, now, deadline, energyKwh, powerKw, blocks = [] }) {
   const blockRanges = expandBlocks(blocks, now, deadline)
+  const blockUse = blockEnergy(blockRanges, now, deadline)
+  const totalKwh = energyKwh + blockUse.kwh
   const candidates = slots
     .map((slot) => {
       const minutes = usableMinutes(slot, now, deadline, blockRanges)
@@ -69,7 +83,7 @@ export function planCharging({ slots, now, deadline, energyKwh, powerKw, blocks 
     })
     .filter((s) => s.maxKwh > 0)
 
-  let remaining = energyKwh
+  let remaining = totalKwh
   const kwhBySlot = new Map()
   for (const s of [...candidates].sort((a, b) => a.price - b.price)) {
     if (remaining <= 1e-9) break
@@ -82,11 +96,14 @@ export function planCharging({ slots, now, deadline, energyKwh, powerKw, blocks 
   const scheduled = plan.filter((s) => s.kwh > 0)
   // $/MWh × kWh / 1000 = $
   const wholesaleCost = scheduled.reduce((sum, s) => sum + (s.price * s.kwh) / 1000, 0)
-  const scheduledKwh = energyKwh - Math.max(0, remaining)
+  const scheduledKwh = totalKwh - Math.max(0, remaining)
   const forecastEnd = slots.length ? slots[slots.length - 1].end : now
 
   return {
     plan,
+    totalKwh,
+    blockKwh: blockUse.kwh,
+    blockCount: blockUse.count,
     windows: mergeWindows(scheduled),
     scheduledKwh,
     shortfallKwh: Math.max(0, remaining),
