@@ -15,6 +15,11 @@ function toLocalInput(d) {
 }
 
 const settings = reactive({
+  // 'battery' works out the energy from the charge level; 'energy' takes a fixed amount.
+  mode: 'battery',
+  capacityKwh: 50,
+  socPct: 20,
+  targetPct: 80,
   energyKwh: 20,
   powerKw: 7,
   // Empty means "end of the forecast".
@@ -65,9 +70,18 @@ const result = computed(() => {
     deadline: deadline.value,
     energyKwh: Number(settings.energyKwh) || 0,
     powerKw: Number(settings.powerKw) || 0,
+    battery: settings.mode === 'battery' && settings.capacityKwh > 0
+      ? {
+          capacityKwh: Number(settings.capacityKwh),
+          socPct: Number(settings.socPct) || 0,
+          targetPct: Number(settings.targetPct) || 0,
+        }
+      : null,
     blocks: settings.blocks.filter((b) => (b.type === 'once' ? b.start && b.end : b.from && b.to)),
   })
 })
+
+const finalPct = computed(() => result.value?.levels?.at(-1)?.pct)
 
 const totalCost = computed(() =>
   result.value ? result.value.wholesaleCost + (settings.extraCents / 100) * result.value.scheduledKwh : 0,
@@ -82,8 +96,23 @@ const totalCost = computed(() =>
     </header>
 
     <form class="card" @submit.prevent>
+      <div class="mode" role="radiogroup" aria-label="How to work out the energy needed">
+        <label><input v-model="settings.mode" type="radio" value="battery" /> From battery level</label>
+        <label><input v-model="settings.mode" type="radio" value="energy" /> Fixed amount</label>
+      </div>
+      <div v-if="settings.mode === 'battery'" class="row">
+        <label>Battery capacity
+          <span class="unit"><input v-model.number="settings.capacityKwh" type="number" min="1" step="1" /> kWh</span>
+        </label>
+        <label>Charge now
+          <span class="unit"><input v-model.number="settings.socPct" type="number" min="0" max="100" step="1" /> %</span>
+        </label>
+        <label>Charge target
+          <span class="unit"><input v-model.number="settings.targetPct" type="number" min="0" max="100" step="1" /> %</span>
+        </label>
+      </div>
       <div class="row">
-        <label>Energy needed
+        <label v-if="settings.mode === 'energy'">Energy needed
           <span class="unit"><input v-model.number="settings.energyKwh" type="number" min="0" step="0.5" /> kWh</span>
         </label>
         <label>Charger power
@@ -128,6 +157,10 @@ const totalCost = computed(() =>
                 for {{ result.blockCount }} {{ result.blockCount === 1 ? 'block' : 'blocks' }}</template>
             </span>
           </div>
+          <div v-if="finalPct !== undefined">
+            <strong>{{ Math.round(finalPct) }}%</strong>
+            <span>battery at the deadline</span>
+          </div>
           <div>
             <strong>{{ fmtCents(centsPerKwh(result.averagePrice)) }}</strong>
             <span>avg wholesale per kWh</span>
@@ -138,16 +171,21 @@ const totalCost = computed(() =>
           </div>
         </div>
 
-        <p v-if="result.shortfallKwh > 0.05" class="warn">
-          Can't fit {{ result.shortfallKwh.toFixed(1) }} kWh before the deadline at {{ settings.powerKw }} kW
-          <template v-if="result.deadlineBeyondForecast">within the forecast period</template>.
+        <p v-for="s in result.shortfalls" :key="s.time.getTime()" class="warn">
+          <template v-if="s.trip">
+            Not enough charge for the trip at {{ fmtDayTime(s.time) }}: {{ s.kwh.toFixed(1) }} kWh short.
+          </template>
+          <template v-else>
+            Can't fit {{ s.kwh.toFixed(1) }} kWh before the deadline at {{ settings.powerKw }} kW
+            <template v-if="result.deadlineBeyondForecast">within the forecast period</template>.
+          </template>
         </p>
         <p v-if="result.deadlineBeyondForecast" class="warn">
           Your deadline is after the end of the forecast ({{ fmtDayTime(forecastEnd) }}). The plan only uses
           forecast hours. Check again later for a longer forecast.
         </p>
 
-        <PriceChart :plan="result.plan" :deadline="deadline" />
+        <PriceChart :plan="result.plan" :deadline="deadline" :levels="result.levels" />
 
         <h2>When to charge</h2>
         <p v-if="!result.windows.length" class="hint">Nothing scheduled.</p>

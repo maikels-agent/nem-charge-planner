@@ -6,6 +6,7 @@
   --border: #dde1e7;
   --accent: #0f7b5f;
   --bar: #c3c9d3;
+  --soc: #2f6fd6;
   --warn-bg: #fff4e0;
   --warn: #8a5300;
   --error: #b42318;
@@ -20,6 +21,7 @@
     --border: #2d3542;
     --accent: #3ccf9f;
     --bar: #46505f;
+    --soc: #7aa7ff;
     --warn-bg: #3a2a10;
     --warn: #f3c37a;
     --error: #ff8a80;
@@ -43,6 +45,10 @@ h2 { font-size: 1.1rem; margin: 24px 0 8px; }
   padding: 16px;
   margin-top: 16px;
 }
+.mode { display: flex; gap: 16px; margin-bottom: 12px; }
+.mode label { flex-direction: row; align-items: center; gap: 6px; font-size: inherit; color: var(--text); }
+.mode input { width: auto; }
+.row + .row { margin-top: 12px; }
 .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
 label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--muted); }
 .unit { display: flex; align-items: center; gap: 6px; color: var(--text); }
@@ -84,7 +90,7 @@ button.link { border: 0; background: none; padding: 0; color: var(--accent); tex
 .actions { display: flex; gap: 8px; margin-top: 8px; }
 .status { display: flex; justify-content: space-between; align-items: center; gap: 8px; color: var(--muted); font-size: 0.85rem; }
 .error { color: var(--error); }
-.summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0; }
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 16px 0; }
 .summary div { display: flex; flex-direction: column; }
 .summary strong { font-size: 1.4rem; }
 .summary span { color: var(--muted); font-size: 0.8rem; }
@@ -95,8 +101,15 @@ button.link { border: 0; background: none; padding: 0; color: var(--accent); tex
 .chart .grid line { stroke: var(--border); }
 .chart text { fill: var(--muted); font-size: 11px; }
 .chart .zero { stroke: var(--muted); }
+.chart .soc { fill: none; stroke: var(--soc); stroke-width: 2; }
+.chart .soc-axis text { fill: var(--soc); }
 .chart .deadline line { stroke: var(--error); stroke-dasharray: 4 3; }
 .chart .deadline text { fill: var(--error); }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
+.legend span { display: flex; align-items: center; gap: 6px; }
+.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; background: var(--bar); }
+.swatch.charging { background: var(--accent); }
+.swatch.line { height: 2px; background: var(--soc); }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--border); }
 th { color: var(--muted); font-weight: 500; font-size: 0.85rem; }

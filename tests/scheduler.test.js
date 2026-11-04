@@ -94,6 +94,77 @@ describe('planCharging', () => {
   })
 })
 
+describe('planCharging with a battery', () => {
+  const battery = { capacityKwh: 50, socPct: 20, targetPct: 80 }
+
+  it('charges from the current level to the target', () => {
+    const slots = slotsFrom('00:00', [5, 1, 3, 2])
+    const result = planCharging({
+      slots, now: t('00:00'), deadline: t('02:00'), powerKw: 20, battery,
+    })
+    // 10 kWh now, 40 kWh target
+    expect(result.totalKwh).toBe(30)
+    expect(result.plan.map((s) => s.kwh)).toEqual([0, 10, 10, 10])
+    expect(result.levels.at(-1).pct).toBeCloseTo(80)
+  })
+
+  it('charges before a trip even when it is cheaper afterwards', () => {
+    const slots = slotsFrom('00:00', [9, 8, 1, 2])
+    const result = planCharging({
+      slots, now: t('00:00'), deadline: t('02:00'), powerKw: 100, battery,
+      // leaves at 01:00 needing 15 kWh, but only 10 kWh is in the battery
+      blocks: [{ type: 'once', start: t('01:00'), end: t('01:01'), kwh: 15 }],
+    })
+    // just enough before the trip, the rest after it when it's cheap
+    expect(result.plan.map((s) => s.kwh)).toEqual([0, 5, 40, 0])
+    expect(result.shortfalls).toEqual([])
+  })
+
+  it('does not overfill the battery before a trip', () => {
+    const slots = slotsFrom('00:00', [1, 1, 5, 5])
+    const result = planCharging({
+      slots, now: t('00:00'), deadline: t('02:00'), powerKw: 100,
+      battery: { capacityKwh: 50, socPct: 80, targetPct: 80 },
+      blocks: [{ type: 'once', start: t('01:00'), end: t('01:01'), kwh: 30 }],
+    })
+    // Only 10 kWh fits before the trip; the rest has to come after it.
+    expect(result.plan[0].kwh + result.plan[1].kwh).toBeCloseTo(10)
+    expect(result.plan[2].kwh + result.plan[3].kwh).toBeCloseTo(20)
+    expect(Math.max(...result.levels.map((p) => p.pct))).toBeLessThanOrEqual(100 + 1e-9)
+  })
+
+  it('reports a trip it cannot charge enough for', () => {
+    const slots = slotsFrom('00:00', [1, 1])
+    const result = planCharging({
+      slots, now: t('00:00'), deadline: t('01:00'), powerKw: 2, battery,
+      blocks: [{ type: 'once', start: t('00:30'), end: t('00:31'), kwh: 12 }],
+    })
+    expect(result.shortfalls[0].trip).not.toBeNull()
+    expect(result.shortfalls[0].kwh).toBeCloseTo(1)
+  })
+
+  it('leaves out a trip already under way', () => {
+    const slots = slotsFrom('00:00', [1, 1])
+    const result = planCharging({
+      slots, now: t('00:30'), deadline: t('01:00'), powerKw: 7,
+      battery: { capacityKwh: 50, socPct: 80, targetPct: 80 },
+      blocks: [{ type: 'once', start: t('00:00'), end: t('00:40'), kwh: 6 }],
+    })
+    expect(result.blockCount).toBe(0)
+    expect(result.scheduledKwh).toBe(0)
+  })
+
+  it('needs nothing when the battery is already above the target', () => {
+    const slots = slotsFrom('00:00', [1])
+    const result = planCharging({
+      slots, now: t('00:00'), deadline: t('00:30'), powerKw: 7,
+      battery: { capacityKwh: 50, socPct: 90, targetPct: 80 },
+    })
+    expect(result.scheduledKwh).toBe(0)
+    expect(result.shortfalls).toEqual([])
+  })
+})
+
 describe('expandBlocks', () => {
   it('handles daily blocks that wrap past midnight', () => {
     const ranges = expandBlocks([{ type: 'daily', from: '22:00', to: '06:00' }], t('03:00'), t('04:00'))

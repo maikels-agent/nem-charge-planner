@@ -5,11 +5,13 @@ import { centsPerKwh, fmtCents, fmtDayTime, fmtTime } from '../lib/format.js'
 const props = defineProps({
   plan: { type: Array, required: true },
   deadline: { type: Date, required: true },
+  // Battery level points ({ time, pct }) to draw over the prices, if known.
+  levels: { type: Array, default: null },
 })
 
 const W = 800
 const H = 220
-const PAD = { top: 10, right: 10, bottom: 28, left: 44 }
+const PAD = { top: 10, right: 40, bottom: 28, left: 44 }
 
 const geometry = computed(() => {
   const prices = props.plan.map((s) => centsPerKwh(s.price))
@@ -38,7 +40,12 @@ const geometry = computed(() => {
     .filter((s, i) => s.start.getMinutes() === 0 && s.start.getHours() % 6 === 0 && i > 0)
     .map((s) => ({ x: x(s.start), label: s.start.getHours() === 0 ? fmtDayTime(s.start).split(' ')[0] : fmtTime(s.start) }))
   const deadlineX = props.deadline.getTime() < t1 ? x(props.deadline) : null
-  return { bars, ticks, hours, zeroY: y(0), deadlineX }
+  const socY = (pct) => PAD.top + ((100 - pct) / 100) * innerH
+  const soc = props.levels && {
+    points: props.levels.map((p) => `${x(p.time).toFixed(1)},${socY(p.pct).toFixed(1)}`).join(' '),
+    ticks: [0, 50, 100].map((pct) => ({ pct, y: socY(pct) })),
+  }
+  return { bars, ticks, hours, zeroY: y(0), deadlineX, soc }
 })
 
 function niceTicks(min, max) {
@@ -67,9 +74,20 @@ function niceTicks(min, max) {
       :class="b.charging ? 'bar charging' : 'bar'"
     ><title>{{ b.label }}</title></rect>
     <line class="zero" :x1="PAD.left" :x2="W - PAD.right" :y1="geometry.zeroY" :y2="geometry.zeroY" />
+    <g v-if="geometry.soc">
+      <polyline class="soc" :points="geometry.soc.points"><title>Battery level</title></polyline>
+      <g class="soc-axis">
+        <text v-for="t in geometry.soc.ticks" :key="t.pct" :x="W - PAD.right + 6" :y="t.y + 4">{{ t.pct }}%</text>
+      </g>
+    </g>
     <g v-if="geometry.deadlineX !== null" class="deadline">
       <line :x1="geometry.deadlineX" :x2="geometry.deadlineX" :y1="PAD.top" :y2="H - PAD.bottom" />
       <text :x="geometry.deadlineX - 4" :y="PAD.top + 10" text-anchor="end">deadline</text>
     </g>
   </svg>
+  <div class="legend">
+    <span><i class="swatch charging"></i>Charging</span>
+    <span><i class="swatch"></i>Not charging</span>
+    <span v-if="levels"><i class="swatch line"></i>Battery level</span>
+  </div>
 </template>

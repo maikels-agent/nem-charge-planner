@@ -25,8 +25,16 @@ npm run build   # static site in dist/, host anywhere
   each period.
 - `src/lib/scheduler.js` works out how many minutes of each slot are
   usable (after now, before the deadline, outside blocked times), then
-  fills the cheapest slots first at the charger's power. With a constant
-  charging rate this greedy approach is optimal.
+  fills the cheapest slots first at the charger's power.
+  - **Fixed amount:** the energy needed plus the energy used in blocks has
+    to be charged by the deadline. Cheapest-first is optimal here.
+  - **From battery level** (default, 20% → 80% of 50 kWh): the battery
+    level is tracked over time. Each block that uses energy (a trip) must
+    have that energy in the battery when it starts, the battery never
+    goes over capacity, and it must reach the target by the deadline.
+    Each requirement is met in time order from the cheapest slots before
+    it. A trip already under way is left out, because "charge now"
+    already shows the current level.
 - Settings are saved in `localStorage`. The forecast refreshes every
   5 minutes.
 
