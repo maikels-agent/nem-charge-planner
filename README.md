@@ -26,6 +26,9 @@ npm run build   # static site in dist/, host anywhere
 - `src/lib/scheduler.js` works out how many minutes of each slot are
   usable (after now, before the deadline, outside blocked times), then
   fills the cheapest slots first at the charger's power.
+  Each charging session runs for at least the minimum charge time
+  (default 60 minutes): sessions that would be shorter are extended or
+  dropped, whichever is cheaper.
   - **Fixed amount:** the energy needed plus the energy used in blocks has
     to be charged by the deadline. Cheapest-first is optimal here.
   - **From battery level** (default, 20% → 80% of 50 kWh): the battery

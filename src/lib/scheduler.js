@@ -81,11 +81,98 @@ const EPS = 1e-9
 // the battery when it starts, the level may never exceed capacity, and the
 // battery must be at the target by the deadline. Requirements are met in
 // time order, each from the cheapest slots before it that still have room.
-export function planCharging({ slots, now, deadline, energyKwh = 0, powerKw, blocks = [], battery = null }) {
+//
+// With `minChargeMinutes`, each charging session must run at least that
+// long. Sessions that are too short are either extended into neighbouring
+// slots or dropped so the energy is charged elsewhere, whichever is
+// cheaper. A short session is kept when both would miss the target, or
+// when it is all that's left to charge.
+export function planCharging(options) {
+  const { powerKw, minChargeMinutes = 0 } = options
+  let constraints = { banned: new Set(), full: new Set() }
+  let { result, maxKwh } = planOnce(options, constraints)
+  if (!(minChargeMinutes > 0) || !(powerKw > 0)) return result
+
+  const minKwh = (powerKw * minChargeMinutes) / 60
+  const key = (slot) => slot.start.getTime()
+  const missing = (r) => r.shortfalls.reduce((sum, s) => sum + s.kwh, 0)
+  const accepted = new Set()
+  const n = result.plan.length
+
+  // Every round fixes one short session, adding to `banned`, `full` or
+  // `accepted`, which only grow, so this always ends.
+  for (let round = 0; round < 3 * n; round++) {
+    const plan = result.plan
+    const fixed = (i) => constraints.full.has(key(plan[i])) || accepted.has(key(plan[i]))
+    const sessions = sessionRanges(plan)
+    const short = sessions.find(([i0, i1]) => {
+      let kwh = 0
+      for (let i = i0; i <= i1; i++) kwh += plan[i].kwh
+      return kwh < minKwh - 1e-6 && ![...Array(i1 - i0 + 1).keys()].some((k) => fixed(i0 + k))
+    })
+    if (!short) break
+    const [i0, i1] = short
+
+    const usable = (i) => maxKwh[i] > EPS && !constraints.banned.has(key(plan[i]))
+    const joined = (i) => plan[i].end.getTime() === plan[i + 1].start.getTime()
+    const choices = []
+    // Drop the session.
+    const dropped = new Set(constraints.banned)
+    for (let i = i0; i <= i1; i++) dropped.add(key(plan[i]))
+    choices.push({ banned: dropped, full: constraints.full })
+    // Or charge for the whole of a long enough run of slots around it.
+    for (let a = i0; a >= 0; a--) {
+      if (a < i0 && !(usable(a) && joined(a))) break
+      let kwh = 0
+      for (let i = a; i <= i1; i++) kwh += maxKwh[i]
+      let b = i1
+      while (kwh < minKwh - 1e-6 && b + 1 < n && usable(b + 1) && joined(b)) kwh += maxKwh[++b]
+      if (kwh >= minKwh - 1e-6) {
+        const full = new Set(constraints.full)
+        for (let i = a; i <= b; i++) full.add(key(plan[i]))
+        choices.push({ banned: constraints.banned, full })
+      }
+      // Starting even earlier only adds slots the session doesn't need.
+      if (b === i1 && kwh >= minKwh - 1e-6) break
+    }
+
+    let best = null
+    for (const choice of choices) {
+      const attempt = planOnce(options, choice)
+      const better = !best
+        || missing(attempt.result) < missing(best.result) - 0.05
+        || (missing(attempt.result) < missing(best.result) + 0.05 && attempt.result.wholesaleCost < best.result.wholesaleCost)
+      if (better) best = { ...attempt, constraints: choice }
+    }
+    if (missing(best.result) > missing(result) + 0.05) {
+      // Fixing it would leave us short of energy: keep the short session.
+      for (let i = i0; i <= i1; i++) accepted.add(key(plan[i]))
+      continue
+    }
+    ;({ result, maxKwh, constraints } = best)
+  }
+  return result
+}
+
+// Index ranges [first, last] of back-to-back slots that charge.
+function sessionRanges(plan) {
+  const ranges = []
+  plan.forEach((s, i) => {
+    if (s.kwh <= 0) return
+    const last = ranges[ranges.length - 1]
+    if (last && last[1] === i - 1 && plan[i - 1].end.getTime() === s.start.getTime()) last[1] = i
+    else ranges.push([i, i])
+  })
+  return ranges
+}
+
+// One plan, with some slots ruled out (`banned`) and some charging for as
+// long as they can (`full`, keyed by slot start time).
+function planOnce({ slots, now, deadline, energyKwh = 0, powerKw, blocks = [], battery = null }, { banned, full }) {
   const blockRanges = expandBlocks(blocks, now, deadline)
   const blockUse = blockEnergy(blockRanges, now, deadline)
   const candidates = slots.map((slot) => {
-    const minutes = usableMinutes(slot, now, deadline, blockRanges)
+    const minutes = banned.has(slot.start.getTime()) ? 0 : usableMinutes(slot, now, deadline, blockRanges)
     return { ...slot, maxKwh: (powerKw * minutes) / 60, kwh: 0 }
   })
 
@@ -125,6 +212,15 @@ export function planCharging({ slots, now, deadline, energyKwh = 0, powerKw, blo
       .reduce((min, t) => Math.min(min, capacityKwh - (initialKwh + chargedBefore(t) - usedBefore(t))), Infinity)
   }
 
+  const final = requirements[requirements.length - 1]
+  // Slots that must charge throughout go first, but never past what's
+  // needed by the deadline.
+  for (const c of candidates) {
+    if (!full.has(c.start.getTime())) continue
+    const kwh = Math.min(c.maxKwh, headroom(c), final.needed - chargedBefore(Infinity))
+    if (kwh > EPS) c.kwh += kwh
+  }
+
   for (const req of requirements) {
     let need = req.needed - chargedBefore(req.time)
     if (need <= EPS) continue
@@ -143,7 +239,6 @@ export function planCharging({ slots, now, deadline, energyKwh = 0, powerKw, blo
   const shortfalls = requirements
     .map((req) => ({ time: req.time, trip: req.trip ?? null, kwh: req.needed - chargedBefore(req.time) }))
     .filter((s) => s.kwh > 0.05)
-  const final = requirements[requirements.length - 1]
 
   const plan = candidates.map(({ maxKwh, ...slot }) => slot)
   const scheduled = plan.filter((s) => s.kwh > 0)
@@ -152,7 +247,7 @@ export function planCharging({ slots, now, deadline, energyKwh = 0, powerKw, blo
   const scheduledKwh = scheduled.reduce((sum, s) => sum + s.kwh, 0)
   const forecastEnd = slots.length ? slots[slots.length - 1].end : now
 
-  return {
+  const result = {
     plan,
     totalKwh: Math.max(0, final.needed),
     blockKwh: battery ? trips.reduce((sum, trip) => sum + trip.kwh, 0) : blockUse.kwh,
@@ -166,6 +261,7 @@ export function planCharging({ slots, now, deadline, energyKwh = 0, powerKw, blo
     deadlineBeyondForecast: deadline > forecastEnd,
     levels: battery ? batteryLevels(plan, trips, initialKwh, capacityKwh, now, deadline) : null,
   }
+  return { result, maxKwh: candidates.map((c) => c.maxKwh) }
 }
 
 // Battery level (%) over time for the chart. Charging is spread evenly

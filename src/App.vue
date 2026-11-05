@@ -22,6 +22,7 @@ const settings = reactive({
   targetPct: 80,
   energyKwh: 20,
   powerKw: 7,
+  minChargeMinutes: 60,
   // Empty means "end of the forecast".
   deadline: '',
   extraCents: 0,
@@ -70,6 +71,7 @@ const result = computed(() => {
     deadline: deadline.value,
     energyKwh: Number(settings.energyKwh) || 0,
     powerKw: Number(settings.powerKw) || 0,
+    minChargeMinutes: Number(settings.minChargeMinutes) || 0,
     battery: settings.mode === 'battery' && settings.capacityKwh > 0
       ? {
           capacityKwh: Number(settings.capacityKwh),
@@ -117,6 +119,9 @@ const totalCost = computed(() =>
         </label>
         <label>Charger power
           <span class="unit"><input v-model.number="settings.powerKw" type="number" min="0.1" step="0.1" /> kW</span>
+        </label>
+        <label>Minimum charge time
+          <span class="unit"><input v-model.number="settings.minChargeMinutes" type="number" min="0" step="15" /> min</span>
         </label>
         <label>Needed by
           <input

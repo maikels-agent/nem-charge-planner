@@ -165,6 +165,60 @@ describe('planCharging with a battery', () => {
   })
 })
 
+describe('planCharging with a minimum charge time', () => {
+  const sessionMinutes = (result, powerKw) => result.windows.map((w) => (w.kwh / powerKw) * 60)
+
+  it('extends a short session into the next cheapest slot', () => {
+    // Cheapest-first would charge 3.5 kWh in the 1c slot only: 30 minutes.
+    const slots = slotsFrom('00:00', [9, 1, 2, 9])
+    const result = planCharging({
+      slots, now: t('00:00'), deadline: t('02:00'), energyKwh: 7, powerKw: 7, minChargeMinutes: 60,
+    })
+    expect(result.plan.map((s) => s.kwh)).toEqual([0, 3.5, 3.5, 0])
+    expect(sessionMinutes(result, 7)).toEqual([60])
+  })
+
+  it('drops a short session when merging it elsewhere is cheaper', () => {
+    // 10.5 kWh: two cheap slots plus a lone 2c slot that only gets 30 minutes.
+    const slots = slotsFrom('00:00', [1, 1, 50, 2, 50, 3])
+    const result = planCharging({
+      slots, now: t('00:00'), deadline: t('03:00'), energyKwh: 10.5, powerKw: 7, minChargeMinutes: 60,
+    })
+    expect(result.windows).toHaveLength(1)
+    expect(result.plan.map((s) => s.kwh)).toEqual([3.5, 3.5, 3.5, 0, 0, 0])
+  })
+
+  it('makes every session at least the minimum when it can', () => {
+    const slots = slotsFrom('00:00', [5, 1, 7, 2, 6, 1, 8, 3, 4, 1])
+    const result = planCharging({
+      slots, now: t('00:00'), deadline: t('05:00'), energyKwh: 14, powerKw: 7, minChargeMinutes: 60,
+    })
+    expect(result.scheduledKwh).toBeCloseTo(14)
+    for (const minutes of sessionMinutes(result, 7)) expect(minutes).toBeGreaterThanOrEqual(60 - 1e-6)
+  })
+
+  it('allows a shorter session when that is all that is needed', () => {
+    const slots = slotsFrom('00:00', [1, 9])
+    const result = planCharging({
+      slots, now: t('00:00'), deadline: t('01:00'), energyKwh: 2, powerKw: 7, minChargeMinutes: 60,
+    })
+    expect(result.scheduledKwh).toBeCloseTo(2)
+    expect(result.plan[0].kwh).toBeCloseTo(2)
+  })
+
+  it('keeps a short session rather than miss a trip', () => {
+    const slots = slotsFrom('00:00', [1, 1, 1, 1, 1])
+    const result = planCharging({
+      slots, now: t('00:00'), deadline: t('02:30'), powerKw: 7, minChargeMinutes: 60,
+      battery: { capacityKwh: 50, socPct: 20, targetPct: 20 },
+      // 30 minutes of charging fit before this trip, and it needs them
+      blocks: [{ type: 'once', start: t('00:30'), end: t('01:00'), kwh: 13.5 }],
+    })
+    expect(result.shortfalls).toEqual([])
+    expect(result.plan[0].kwh).toBeCloseTo(3.5)
+  })
+})
+
 describe('expandBlocks', () => {
   it('handles daily blocks that wrap past midnight', () => {
     const ranges = expandBlocks([{ type: 'daily', from: '22:00', to: '06:00' }], t('03:00'), t('04:00'))
