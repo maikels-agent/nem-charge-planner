@@ -37,13 +37,16 @@ const slots = ref([])
 const error = ref(null)
 const loading = ref(false)
 const fetchedAt = ref(null)
+const forecastInfo = ref(null)
 const now = ref(new Date())
 
 async function refresh() {
   loading.value = true
   error.value = null
   try {
-    slots.value = await fetchForecast('VIC1')
+    const forecast = await fetchForecast('VIC1')
+    slots.value = forecast.slots
+    forecastInfo.value = forecast
     fetchedAt.value = new Date()
   } catch (e) {
     error.value = e.message
@@ -147,8 +150,13 @@ const totalCost = computed(() =>
       <div class="status">
         <span v-if="loading">Loading forecast…</span>
         <span v-else-if="error" class="error">Couldn't load the forecast: {{ error }}</span>
-        <span v-else-if="fetchedAt">
-          Forecast updated {{ fmtTime(fetchedAt) }}, covers until {{ fmtDayTime(forecastEnd) }}
+        <span v-else-if="fetchedAt" :class="{ error: forecastInfo.stale }">
+          <template v-if="forecastInfo.publishedAt">
+            AEMO forecast published {{ fmtDayTime(forecastInfo.publishedAt) }}<template v-if="forecastInfo.stale">
+              (out of date: newer forecasts couldn't be loaded)</template>,
+          </template>
+          <template v-else>Forecast loaded {{ fmtTime(fetchedAt) }},</template>
+          covers until {{ fmtDayTime(forecastEnd) }}
         </span>
         <button type="button" :disabled="loading" @click="refresh">Refresh</button>
       </div>

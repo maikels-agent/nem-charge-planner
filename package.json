@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "forecast": "node scripts/fetch-forecast.mjs public/forecast.json"
   },
   "dependencies": {
     "vue": "^3.5.44"

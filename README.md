@@ -16,13 +16,19 @@ npm run build   # static site in dist/, host anywhere
 
 ## How it works
 
-- `src/lib/aemo.js` fetches forecasts from the API behind AEMO's NEM
-  dashboard (`visualisations.aemo.com.au/.../report/5MIN`). It allows
-  cross-origin requests, so no backend is needed. It only returns
-  forecast rows when the request asks for both `5MIN` and `30MIN`
-  timescales. The forecast covers roughly the next 36 hours in 30-minute
-  periods. Timestamps are in NEM time (AEST, UTC+10) and mark the end of
-  each period.
+- **Forecast data.** `scripts/fetch-forecast.mjs` downloads AEMO's latest
+  pre-dispatch run from NEMWeb (`PredispatchIS_Reports`) and writes
+  each region's half-hourly price forecast (`REGION_PRICES`) to
+  `forecast.json`. NEMWeb doesn't allow browser requests, so the Pages
+  workflow runs this every 30 minutes and publishes the file next to the
+  app. The forecast runs to the end of the next trading day (4am), so it
+  covers between about 22 and 46 hours. Times are in NEM time (AEST,
+  UTC+10) and mark the end of each period.
+- `src/lib/aemo.js` loads `forecast.json`. If that is missing or more
+  than 75 minutes old it tries the undocumented API behind AEMO's NEM
+  dashboard (`visualisations.aemo.com.au`), and if that fails too it
+  uses the old file and says it's out of date. For local development,
+  run `npm run forecast` to write `public/forecast.json`.
 - `src/lib/scheduler.js` works out how many minutes of each slot are
   usable (after now, before the deadline, outside blocked times), then
   fills the cheapest slots first at the charger's power.
@@ -43,9 +49,11 @@ npm run build   # static site in dist/, host anywhere
 
 ## Caveats
 
-- The AEMO endpoint is undocumented and could change. If it does, swap
-  `fetchForecast` for a small proxy (e.g. a Cloudflare Worker) that
-  reads the pre-dispatch files from NEMWeb.
+- GitHub disables scheduled workflows in public repositories after
+  60 days without activity in the repository. If the forecast stops
+  updating, re-enable the workflow under Actions.
+- Scheduled runs can start late when GitHub is busy, so the forecast can
+  be up to an hour old.
 - Prices are wholesale. Use the "Network + retail extra" field to add
   roughly what your retailer charges on top.
 

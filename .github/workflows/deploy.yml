@@ -3,6 +3,10 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  # Refresh forecast.json after each half-hourly pre-dispatch run, which
+  # AEMO publishes a few minutes after :00 and :30 (AEST = UTC+10).
+  schedule:
+    - cron: '7,37 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -12,7 +16,8 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  # Let a running deployment finish rather than cancel it half way.
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -26,6 +31,8 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      # If NEMWeb is down this fails and the last deployed forecast stays up.
+      - run: node scripts/fetch-forecast.mjs dist/forecast.json
       - uses: actions/upload-pages-artifact@v5
         with:
           path: dist
