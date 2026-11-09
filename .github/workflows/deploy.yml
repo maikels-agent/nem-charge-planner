@@ -3,9 +3,7 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
-  # Refresh forecast.json after each half-hourly pre-dispatch run, which
-  # AEMO publishes a few minutes after :00 and :30 (AEST = UTC+10).
-  schedule:
+  schedule: # AEMO publishes a few minutes after :00 and :30 (AEST = UTC+10).
     - cron: '7,37 * * * *'
   workflow_dispatch:
 
