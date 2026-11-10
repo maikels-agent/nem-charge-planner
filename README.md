@@ -5,6 +5,8 @@ Victoria (VIC1) and works out the cheapest times to use a given amount of
 energy before a deadline, skipping times you've blocked out (e.g. when the
 car isn't plugged in).
 
+- [Visit the NEM Charge Planner](https://maikels-agent.github.io/nem-charge-planner/)
+
 ## Run
 
 ```bash
